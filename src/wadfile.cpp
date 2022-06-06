@@ -16,8 +16,12 @@
 #include "wadfile.hpp"
 #include "common.hpp"
 #include <algorithm>
+#include <cassert>
 
 WadFile::WadFile(const std::string &path, Mode mode) : mode_(mode) {
+    // Default directory
+    dirs.push_back({"", {}});
+
     if (mode == Mode::Open)
         open(path);
     else
@@ -29,6 +33,29 @@ WadFile::~WadFile() {
     if (mode_ == Mode::Open)
         return;
 
+    // Create the lumps
+    std::vector<LumpEntry> lumps;
+    for (const auto &dir : dirs) {
+        LumpEntry marker;
+        marker.offset = marker.size = 0;
+        std::copy(dir.name.begin(), dir.name.end(), marker.name);
+
+        // Start marker
+        if (dir.name.size()) {
+            std::copy_n("_START", 6, marker.name+dir.name.size());
+            lumps.push_back(marker);
+        }
+
+        for (const auto &lump : dir.lumps)
+            lumps.push_back(lump);
+
+        // End marker
+        if (dir.name.size()) {
+            std::copy_n("_END", 4, marker.name+dir.name.size());
+            lumps.push_back(marker);
+        }
+    }
+
     // Create the header
     Header header;
     header.id[0] = (mode_ == Mode::CreateIWAD) ? 'I' : 'P';
@@ -37,9 +64,7 @@ WadFile::~WadFile() {
     header.offset = Common::little32(file.tellp());
 
     // Save the lump entries
-    for (auto i = 0; i < lumps.size(); i++) {
-        LumpEntry lump = lumps[i];
-
+    for (auto lump : lumps) {
         // Endian swap the lump entry
         lump.offset = Common::little32(lump.offset);
         lump.size   = Common::little32(lump.size);
@@ -53,34 +78,34 @@ WadFile::~WadFile() {
     file.close();
 }
 
-std::size_t WadFile::num_lumps() const {
-    return lumps.size();
+std::size_t WadFile::num_dirs() const {
+    return dirs.size();
 }
 
-std::string WadFile::lump_name(std::size_t index) const {
-    if (index >= lumps.size())
-        return "";
+std::string WadFile::dir_name(std::size_t index) const {
+    assert(index < dirs.size());
 
-    auto name = lumps[index].name;
-
-    // Find first occurence of a null byte
-    int i;
-    for (i = 7; i >= 0; i--) {
-        if (!name[i])
-            break;
-    }
-
-    if (i >= 0)
-        return std::string(lumps[index].name, i+1);
-
-    return std::string(lumps[index].name, 8);
+    return dirs[index].name;
 }
 
-std::size_t WadFile::lump_size(std::size_t index) const {
-    if (index >= lumps.size())
-        return 0;
+std::size_t WadFile::dir_size(std::size_t index) const {
+    assert(index < dirs.size());
 
-    return lumps[index].size;
+    return dirs[index].lumps.size();
+}
+
+std::string WadFile::lump_name(std::size_t dir, std::size_t index) const {
+    assert(dir < dirs.size());
+    assert(index < dirs[dir].lumps.size());
+
+    return lump_name(dirs[dir].lumps[index].name);
+}
+
+std::size_t WadFile::lump_size(std::size_t dir, std::size_t index) const {
+    assert(dir < dirs.size());
+    assert(index < dirs[dir].lumps.size());
+
+    return dirs[dir].lumps[index].size;
 }
 
 bool WadFile::valid() {
@@ -90,27 +115,36 @@ bool WadFile::valid() {
     file.seekg(0, std::ios::end);
     std::size_t size = file.tellg();
 
-    for (const auto &lump : lumps) {
-        // Make sure that the entry is contained inside
-        if (lump.offset + lump.size > size)
-            return false;
+    for (const auto &dir : dirs) {
+        for (const auto &lump : dir.lumps) {
+            // Make sure that the entry is contained inside
+            if (lump.offset + lump.size > size)
+                return false;
+        }
     }
 
     return true;
 }
 
-Lump WadFile::read_lump(std::size_t index) {
-    if (mode_ != Mode::Open || index >= lumps.size())
+Lump WadFile::read_lump(std::size_t dir, std::size_t index) {
+    assert(dir < dirs.size());
+    assert(index < dirs[dir].lumps.size());
+
+    if (mode_ != Mode::Open)
         return Lump();
 
-    file.seekg(lumps[index].offset, std::ios::beg);
+    file.seekg(dirs[dir].lumps[index].offset, std::ios::beg);
 
-    return Lump(file, lumps[index].size);
+    return Lump(file, dirs[dir].lumps[index].size);
 }
 
-bool WadFile::write_lump(const std::string &name, Lump lump) {
+bool WadFile::write_lump(const std::string &dir, const std::string &name, Lump lump) {
     // Including null-terminator
     if (mode_ == Mode::Open || name.size() >= sizeof(LumpEntry::name))
+        return false;
+
+    // Make sure that the directory name isn't to long
+    if (dir.size() > 2)
         return false;
 
     // Create the entry
@@ -121,7 +155,20 @@ bool WadFile::write_lump(const std::string &name, Lump lump) {
     // Copy the name
     std::fill_n(entry.name, sizeof(entry.name), 0x00);
     std::copy_n(&name[0], name.size(), entry.name);
-    lumps.push_back(entry);
+
+    // First try to find the directory
+    unsigned int index;
+    for (index = 0; index < dirs.size(); index++) {
+        if (dirs[index].name == name)
+            break;
+    }
+
+    // Otherwise create it
+    if (index == dirs.size())
+        dirs.push_back({name, {}});
+
+    // Add the entry
+    dirs[index].lumps.push_back(entry);
 
     // Write the data
     lump.write(file);
@@ -146,7 +193,7 @@ void WadFile::open(const std::string &path) {
     header.size   = Common::little32(header.size);
 
     file.seekg(header.offset);
-    lumps.resize(header.size);
+    std::vector<LumpEntry> lumps(header.size);
 
     // Read the lump entries
     for (auto &lump : lumps) {
@@ -155,6 +202,9 @@ void WadFile::open(const std::string &path) {
         lump.offset = Common::little32(lump.offset);
         lump.size   = Common::little32(lump.size);
     }
+
+    // Create the directories
+    create_dirs(lumps);
 }
 
 void WadFile::create(const std::string &path) {
@@ -165,4 +215,63 @@ void WadFile::create(const std::string &path) {
 
     // Skip the space where the header goes (We'll fill it in later)
     file.seekg(sizeof(Header), std::ios::beg);
+}
+
+void WadFile::create_dirs(const std::vector<LumpEntry> &lumps) {
+    // Find the directories
+    for (auto i = 0; i < lumps.size(); i++) {
+        // We are only looking for virtual lumps
+        if (lumps[i].size) {
+            dirs[0].lumps.push_back(lumps[i]);
+            continue;
+        }
+
+        // Check if this is a starting marker
+        auto name = lump_name(lumps[i].name);
+        if (!Common::ends_with(name, "_START")) {
+            dirs[0].lumps.push_back(lumps[i]);
+            continue;
+        }
+
+        // Strip the "_START" from the name
+        name = name.substr(0, name.size() - 6);
+
+        // Search for the end marker
+        int j;
+        for (j = i+1; j < lumps.size(); j++) {
+            if (lumps[i].size)
+                continue;
+
+            // Check if this is the end marker
+            if (lump_name(lumps[j].name) == (name+"_END"))
+                break;
+        }
+
+        // Couldn't find the end marker, just add the start one as a lump
+        if (i != lumps.size()) {
+            dirs[0].lumps.push_back(lumps[i]);
+            continue;
+        }
+
+        // Create the directory
+        dirs.push_back({name, {}});
+
+        // Add the lumps to the directory
+        for (int k = i+1; k < j-1; k++)
+            dirs.back().lumps.push_back(lumps[k]);
+    }
+}
+
+std::string WadFile::lump_name(const char name[8]) const {
+    // Find first occurence of a null byte
+    int i;
+    for (i = 7; i >= 0; i--) {
+        if (!name[i])
+            break;
+    }
+
+    if (i >= 0)
+        return std::string(name, i+1);
+
+    return std::string(name, 8);
 }

@@ -34,14 +34,17 @@ public:
     WadFile(const std::string &path, Mode mode);
     ~WadFile();
 
-    std::size_t num_lumps() const;
-    std::string lump_name(std::size_t index) const;
-    std::size_t lump_size(std::size_t index) const;
+    std::size_t num_dirs() const;
+    std::string dir_name(std::size_t index) const;
+    std::size_t dir_size(std::size_t index) const;
+
+    std::string lump_name(std::size_t dir, std::size_t index) const;
+    std::size_t lump_size(std::size_t dir, std::size_t index) const;
 
     bool valid();
 
-    Lump read_lump(std::size_t index);
-    bool write_lump(const std::string &name, Lump lump);
+    Lump read_lump(std::size_t dir, std::size_t index);
+    bool write_lump(const std::string &dir, const std::string &name, Lump lump);
 
 private:
     struct Header {
@@ -56,11 +59,18 @@ private:
         char name[8];
     };
 
+    struct Dir {
+        std::string name;
+        std::vector<LumpEntry> lumps;
+    };
+
     void open(const std::string &path);
     void create(const std::string &path);
+    void create_dirs(const std::vector<LumpEntry> &lumps);
+    std::string lump_name(const char name[8]) const;
 
     Mode mode_;
 
-    std::vector<LumpEntry> lumps;
+    std::vector<Dir> dirs;
     std::fstream file;
 };

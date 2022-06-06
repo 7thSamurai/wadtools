@@ -15,11 +15,12 @@
 
 #pragma once
 
+#include <string>
 #include <endian.h>
 
 namespace Common {
 
-std::uint32_t little32(std::uint32_t n) {
+inline std::uint32_t little32(std::uint32_t n) {
 #if BYTE_ORDER == BIG_ENDIAN
     return (n & 0xFF000000) >> 24 |
            (n & 0x00FF0000) >> 8  |
@@ -28,6 +29,13 @@ std::uint32_t little32(std::uint32_t n) {
 #else
     return n;
 #endif
+}
+
+inline bool ends_with(const std::string &str, const std::string &ending) {
+    if (ending.size() > str.size())
+        return false;
+
+    return std::equal(ending.rbegin(), ending.rend(), str.rbegin());
 }
 
 };
