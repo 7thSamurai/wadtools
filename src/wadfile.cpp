@@ -17,6 +17,7 @@
 #include "common.hpp"
 #include <algorithm>
 #include <cassert>
+#include <cstring>
 
 WadFile::WadFile(const std::string &path, Mode mode) : mode_(mode) {
     // Default directory
@@ -40,19 +41,29 @@ WadFile::~WadFile() {
         marker.offset = marker.size = 0;
         std::copy(dir.name.begin(), dir.name.end(), marker.name);
 
-        // Start marker
-        if (dir.name.size()) {
+        if (is_map_lump(marker.name)) {
+            lumps.push_back(marker);
+
+            for (const auto &lump : dir.lumps)
+                lumps.push_back(lump);
+        }
+
+        else if (dir.name.size()) {
+            // Start marker
             std::copy_n("_START", 6, marker.name+dir.name.size());
+            lumps.push_back(marker);
+
+            for (const auto &lump : dir.lumps)
+                lumps.push_back(lump);
+
+            // End marker
+            std::copy_n("_END", 4, marker.name+dir.name.size());
             lumps.push_back(marker);
         }
 
-        for (const auto &lump : dir.lumps)
-            lumps.push_back(lump);
-
-        // End marker
-        if (dir.name.size()) {
-            std::copy_n("_END", 4, marker.name+dir.name.size());
-            lumps.push_back(marker);
+        else {
+            for (const auto &lump : dir.lumps)
+                lumps.push_back(lump);
         }
     }
 
@@ -226,8 +237,27 @@ void WadFile::create_dirs(const std::vector<LumpEntry> &lumps) {
             continue;
         }
 
-        // Check if this is a starting marker
+        // Check if this is a map marker
         auto name = lump_name(lumps[i].name);
+        if (is_map_marker(lumps[i].name)) {
+            // Find the end of the lumps
+            int j;
+            for (j = i+1; j < std::min<int>(i+10, lumps.size()); j++) {
+                if (!is_map_lump(lumps[j].name))
+                    break;
+            }
+
+            // Create the directory
+            dirs.push_back({name, {}});
+
+            // Add the lumps to the directory
+            for (int k = i+1; k < j; k++, i++)
+                dirs.back().lumps.push_back(lumps[k]);
+
+            continue;
+        }
+
+        // Make sure that this is a starting marker
         if (!Common::ends_with(name, "_START")) {
             dirs[0].lumps.push_back(lumps[i]);
             continue;
@@ -257,7 +287,7 @@ void WadFile::create_dirs(const std::vector<LumpEntry> &lumps) {
         dirs.push_back({name, {}});
 
         // Add the lumps to the directory
-        for (int k = i+1; k < j-1; k++)
+        for (int k = i+1; k < j-1; k++, i++)
             dirs.back().lumps.push_back(lumps[k]);
     }
 }
@@ -274,4 +304,39 @@ std::string WadFile::lump_name(const char name[8]) const {
         return std::string(name, i+1);
 
     return std::string(name, 8);
+}
+
+bool WadFile::is_map_marker(const char name[8]) const {
+    if (name[0] == 'E' && name[2] == 'M') {
+        if (!std::isdigit(name[1])) return false;
+        if (!std::isdigit(name[3])) return false;
+        if (name[4]) return false;
+
+        return true;
+    }
+
+    else if (name[0] == 'M' && name[1] == 'A' && name[3] == 'P') {
+        if (!std::isdigit(name[3])) return false;
+        if (!std::isdigit(name[4])) return false;
+        if (name[5]) return false;
+
+        return true;
+    }
+
+    return false;
+}
+
+bool WadFile::is_map_lump(const char name[8]) const {
+    if (strncmp(name, "THINGS",   8) == 0 ||
+        strncmp(name, "LINEDEFS", 8) == 0 ||
+        strncmp(name, "VERTEXES", 8) == 0 ||
+        strncmp(name, "SEGS",     8) == 0 ||
+        strncmp(name, "SSECTORS", 8) == 0 ||
+        strncmp(name, "NODES",    8) == 0 ||
+        strncmp(name, "SECTORS",  8) == 0 ||
+        strncmp(name, "REJECT",   8) == 0 ||
+        strncmp(name, "BLOCKMAP", 8) == 0)
+        return true;
+
+    return false;
 }

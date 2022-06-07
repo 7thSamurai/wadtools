@@ -67,7 +67,10 @@ private:
     void open(const std::string &path);
     void create(const std::string &path);
     void create_dirs(const std::vector<LumpEntry> &lumps);
+
     std::string lump_name(const char name[8]) const;
+    bool is_map_marker(const char name[8]) const;
+    bool is_map_lump(const char name[8]) const;
 
     Mode mode_;
 
