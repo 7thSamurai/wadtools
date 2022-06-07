@@ -9,3 +9,7 @@ add_library(
 )
 
 target_compile_features(common PRIVATE cxx_std_17)
+
+add_executable(unwad src/unwad.cpp)
+target_link_libraries(unwad PRIVATE common)
+target_compile_features(unwad PRIVATE cxx_std_17)
