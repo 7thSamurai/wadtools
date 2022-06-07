@@ -242,7 +242,7 @@ void WadFile::create_dirs(const std::vector<LumpEntry> &lumps) {
         if (is_map_marker(lumps[i].name)) {
             // Find the end of the lumps
             int j;
-            for (j = i+1; j < std::min<int>(i+10, lumps.size()); j++) {
+            for (j = i+1; j < std::min<int>(i+11, lumps.size()); j++) {
                 if (!is_map_lump(lumps[j].name))
                     break;
             }
@@ -269,7 +269,7 @@ void WadFile::create_dirs(const std::vector<LumpEntry> &lumps) {
         // Search for the end marker
         int j;
         for (j = i+1; j < lumps.size(); j++) {
-            if (lumps[i].size)
+            if (lumps[j].size)
                 continue;
 
             // Check if this is the end marker
@@ -278,7 +278,7 @@ void WadFile::create_dirs(const std::vector<LumpEntry> &lumps) {
         }
 
         // Couldn't find the end marker, just add the start one as a lump
-        if (i != lumps.size()) {
+        if (j == lumps.size()) {
             dirs[0].lumps.push_back(lumps[i]);
             continue;
         }
@@ -295,13 +295,13 @@ void WadFile::create_dirs(const std::vector<LumpEntry> &lumps) {
 std::string WadFile::lump_name(const char name[8]) const {
     // Find first occurence of a null byte
     int i;
-    for (i = 7; i >= 0; i--) {
+    for (i = 0; i < 8; i++) {
         if (!name[i])
             break;
     }
 
-    if (i >= 0)
-        return std::string(name, i+1);
+    if (i != 8)
+        return std::string(name, i);
 
     return std::string(name, 8);
 }
@@ -329,6 +329,7 @@ bool WadFile::is_map_marker(const char name[8]) const {
 bool WadFile::is_map_lump(const char name[8]) const {
     if (strncmp(name, "THINGS",   8) == 0 ||
         strncmp(name, "LINEDEFS", 8) == 0 ||
+        strncmp(name, "SIDEDEFS", 8) == 0 ||
         strncmp(name, "VERTEXES", 8) == 0 ||
         strncmp(name, "SEGS",     8) == 0 ||
         strncmp(name, "SSECTORS", 8) == 0 ||
