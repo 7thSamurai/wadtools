@@ -31,20 +31,25 @@ public:
         CreatePWAD
     };
 
+    struct Dir {
+        std::string name;
+        std::vector<std::size_t> dirs, lumps;
+    };
+
     WadFile(const std::string &path, Mode mode);
     ~WadFile();
 
-    std::size_t num_dirs() const;
-    std::string dir_name(std::size_t index) const;
-    std::size_t dir_size(std::size_t index) const;
+    const Dir &root_dir() const;
+    const Dir &get_dir(std::size_t index) const;
+    std::size_t create_dir(std::size_t parent, const std::string &name);
 
-    std::string lump_name(std::size_t dir, std::size_t index) const;
-    std::size_t lump_size(std::size_t dir, std::size_t index) const;
+    std::string lump_name(std::size_t index) const;
+    std::size_t lump_size(std::size_t index) const;
 
     bool valid();
 
-    Lump read_lump(std::size_t dir, std::size_t index);
-    bool write_lump(const std::string &dir, const std::string &name, Lump lump);
+    Lump read_lump(std::size_t index);
+    bool write_lump(std::size_t dir, const std::string &name, Lump lump);
 
 private:
     struct Header {
@@ -59,14 +64,9 @@ private:
         char name[8];
     };
 
-    struct Dir {
-        std::string name;
-        std::vector<LumpEntry> lumps;
-    };
-
     void open(const std::string &path);
     void create(const std::string &path);
-    void create_dirs(const std::vector<LumpEntry> &lumps);
+    void create_dirs(std::size_t cur, std::size_t offset, std::size_t end);
 
     std::string lump_name(const char name[8]) const;
     bool is_map_marker(const char name[8]) const;
@@ -75,5 +75,6 @@ private:
     Mode mode_;
 
     std::vector<Dir> dirs;
+    std::vector<LumpEntry> lumps;
     std::fstream file;
 };

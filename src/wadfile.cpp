@@ -21,7 +21,7 @@
 
 WadFile::WadFile(const std::string &path, Mode mode) : mode_(mode) {
     // Default directory
-    dirs.push_back({"", {}});
+    dirs.push_back({"", {}, {}});
 
     if (mode == Mode::Open)
         open(path);
@@ -45,7 +45,7 @@ WadFile::~WadFile() {
             lumps.push_back(marker);
 
             for (const auto &lump : dir.lumps)
-                lumps.push_back(lump);
+                lumps.push_back(this->lumps[lump]);
         }
 
         else if (dir.name.size()) {
@@ -54,7 +54,7 @@ WadFile::~WadFile() {
             lumps.push_back(marker);
 
             for (const auto &lump : dir.lumps)
-                lumps.push_back(lump);
+                lumps.push_back(this->lumps[lump]);
 
             // End marker
             std::copy_n("_END", 4, marker.name+dir.name.size());
@@ -63,7 +63,7 @@ WadFile::~WadFile() {
 
         else {
             for (const auto &lump : dir.lumps)
-                lumps.push_back(lump);
+                lumps.push_back(this->lumps[lump]);
         }
     }
 
@@ -89,34 +89,43 @@ WadFile::~WadFile() {
     file.close();
 }
 
-std::size_t WadFile::num_dirs() const {
-    return dirs.size();
+const WadFile::Dir &WadFile::root_dir() const {
+    return dirs.front();
 }
 
-std::string WadFile::dir_name(std::size_t index) const {
+const WadFile::Dir &WadFile::get_dir(std::size_t index) const {
     assert(index < dirs.size());
 
-    return dirs[index].name;
+    return dirs[index];
 }
 
-std::size_t WadFile::dir_size(std::size_t index) const {
-    assert(index < dirs.size());
+std::size_t WadFile::create_dir(std::size_t parent, const std::string &name) {
+    assert(parent < dirs.size());
 
-    return dirs[index].lumps.size();
+    if (mode_ == Mode::Open)
+        return 0;
+
+    // Make sure that the name is not too long
+    if (name.size() > 2)
+        return 0;
+
+    // Create the directory
+    dirs[parent].dirs.push_back(dirs.size());
+    dirs.push_back({name, {}, {}});
+
+    return dirs.size() - 1;
 }
 
-std::string WadFile::lump_name(std::size_t dir, std::size_t index) const {
-    assert(dir < dirs.size());
-    assert(index < dirs[dir].lumps.size());
+std::string WadFile::lump_name(std::size_t index) const {
+    assert(index < lumps.size());
 
-    return lump_name(dirs[dir].lumps[index].name);
+    return lump_name(lumps[index].name);
 }
 
-std::size_t WadFile::lump_size(std::size_t dir, std::size_t index) const {
-    assert(dir < dirs.size());
-    assert(index < dirs[dir].lumps.size());
+std::size_t WadFile::lump_size(std::size_t index) const {
+    assert(index < lumps.size());
 
-    return dirs[dir].lumps[index].size;
+    return lumps[index].size;
 }
 
 bool WadFile::valid() {
@@ -126,36 +135,31 @@ bool WadFile::valid() {
     file.seekg(0, std::ios::end);
     std::size_t size = file.tellg();
 
-    for (const auto &dir : dirs) {
-        for (const auto &lump : dir.lumps) {
+    for (const auto &lump : lumps) {
             // Make sure that the entry is contained inside
             if (lump.offset + lump.size > size)
                 return false;
-        }
     }
 
     return true;
 }
 
-Lump WadFile::read_lump(std::size_t dir, std::size_t index) {
-    assert(dir < dirs.size());
-    assert(index < dirs[dir].lumps.size());
+Lump WadFile::read_lump(std::size_t index) {
+    assert(index < lumps.size());
 
     if (mode_ != Mode::Open)
         return Lump();
 
-    file.seekg(dirs[dir].lumps[index].offset, std::ios::beg);
+    file.seekg(lumps[index].offset, std::ios::beg);
 
-    return Lump(file, dirs[dir].lumps[index].size);
+    return Lump(file, lumps[index].size);
 }
 
-bool WadFile::write_lump(const std::string &dir, const std::string &name, Lump lump) {
+bool WadFile::write_lump(const std::size_t dir, const std::string &name, Lump lump) {
+    assert(dir < dirs.size());
+
     // Including null-terminator
     if (mode_ == Mode::Open || name.size() >= sizeof(LumpEntry::name))
-        return false;
-
-    // Make sure that the directory name isn't to long
-    if (dir.size() > 2)
         return false;
 
     // Create the entry
@@ -167,19 +171,9 @@ bool WadFile::write_lump(const std::string &dir, const std::string &name, Lump l
     std::fill_n(entry.name, sizeof(entry.name), 0x00);
     std::copy_n(&name[0], name.size(), entry.name);
 
-    // First try to find the directory
-    unsigned int index;
-    for (index = 0; index < dirs.size(); index++) {
-        if (dirs[index].name == name)
-            break;
-    }
-
-    // Otherwise create it
-    if (index == dirs.size())
-        dirs.push_back({name, {}});
-
     // Add the entry
-    dirs[index].lumps.push_back(entry);
+    dirs[dir].lumps.push_back(lumps.size());
+    lumps.push_back(entry);
 
     // Write the data
     lump.write(file);
@@ -204,7 +198,7 @@ void WadFile::open(const std::string &path) {
     header.size   = Common::little32(header.size);
 
     file.seekg(header.offset);
-    std::vector<LumpEntry> lumps(header.size);
+    lumps.resize(header.size);
 
     // Read the lump entries
     for (auto &lump : lumps) {
@@ -215,7 +209,7 @@ void WadFile::open(const std::string &path) {
     }
 
     // Create the directories
-    create_dirs(lumps);
+    create_dirs(0, 0, lumps.size()-1);
 }
 
 void WadFile::create(const std::string &path) {
@@ -228,12 +222,12 @@ void WadFile::create(const std::string &path) {
     file.seekg(sizeof(Header), std::ios::beg);
 }
 
-void WadFile::create_dirs(const std::vector<LumpEntry> &lumps) {
+void WadFile::create_dirs(std::size_t cur, std::size_t offset, std::size_t end) {
     // Find the directories
-    for (auto i = 0; i < lumps.size(); i++) {
+    for (auto i = offset; i <= end; i++) {
         // We are only looking for virtual lumps
         if (lumps[i].size) {
-            dirs[0].lumps.push_back(lumps[i]);
+            dirs[cur].lumps.push_back(i);
             continue;
         }
 
@@ -242,24 +236,27 @@ void WadFile::create_dirs(const std::vector<LumpEntry> &lumps) {
         if (is_map_marker(lumps[i].name)) {
             // Find the end of the lumps
             int j;
-            for (j = i+1; j < std::min<int>(i+11, lumps.size()); j++) {
+            for (j = i+1; j < std::min<int>(i+11, end); j++) {
                 if (!is_map_lump(lumps[j].name))
                     break;
             }
 
             // Create the directory
-            dirs.push_back({name, {}});
+            dirs[cur].dirs.push_back(dirs.size());
+            dirs.push_back({name, {}, {}});
 
             // Add the lumps to the directory
-            for (int k = i+1; k < j; k++, i++)
-                dirs.back().lumps.push_back(lumps[k]);
+            for (int k = i+1; k < j; k++)
+                dirs.back().lumps.push_back(k);
+
+            i += j - i;
 
             continue;
         }
 
         // Make sure that this is a starting marker
         if (!Common::ends_with(name, "_START")) {
-            dirs[0].lumps.push_back(lumps[i]);
+            dirs[cur].lumps.push_back(i);
             continue;
         }
 
@@ -279,16 +276,17 @@ void WadFile::create_dirs(const std::vector<LumpEntry> &lumps) {
 
         // Couldn't find the end marker, just add the start one as a lump
         if (j == lumps.size()) {
-            dirs[0].lumps.push_back(lumps[i]);
+            dirs[cur].lumps.push_back(i);
             continue;
         }
 
         // Create the directory
-        dirs.push_back({name, {}});
+        dirs[cur].dirs.push_back(dirs.size());
+        dirs.push_back({name, {}, {}});
 
-        // Add the lumps to the directory
-        for (int k = i+1; k < j-1; k++, i++)
-            dirs.back().lumps.push_back(lumps[k]);
+        // Recursively add the lumps to the directory
+        create_dirs(dirs.size()-1, i+1, j-1);
+        i += j - i;
     }
 }
 
