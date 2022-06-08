@@ -144,15 +144,20 @@ bool WadFile::valid() {
     return true;
 }
 
-Lump WadFile::read_lump(std::size_t index) {
+std::unique_ptr<Lump> WadFile::read_lump(std::size_t dir, std::size_t index) {
+    assert(dir < dirs.size());
     assert(index < lumps.size());
 
     if (mode_ != Mode::Open)
-        return Lump();
+        return std::make_unique<Lump>();
 
     file.seekg(lumps[index].offset, std::ios::beg);
+    auto name = lump_name(lumps[index].name);
 
-    return Lump(file, lumps[index].size);
+    if (name == "PLAYPAL")
+        return std::make_unique<Palette>(file, lumps[index].size);
+
+    return std::make_unique<Lump>(file, lumps[index].size);
 }
 
 bool WadFile::write_lump(const std::size_t dir, const std::string &name, Lump lump) {
@@ -210,6 +215,17 @@ void WadFile::open(const std::string &path) {
 
     // Create the directories
     create_dirs(0, 0, lumps.size()-1);
+
+    // Load the palette
+    for (const auto &lump : lumps) {
+        if (lump.name[0] == 'P') {
+            if (lump_name(lump.name) == "PLAYPAL" && (lump.size % 768) == 0) {
+                file.seekg(lump.offset, std::ios::beg);
+                pal = std::make_unique<Palette>(file, lump.size);
+                break;
+            }
+        }
+    }
 }
 
 void WadFile::create(const std::string &path) {

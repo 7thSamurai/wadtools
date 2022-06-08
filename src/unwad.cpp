@@ -18,8 +18,10 @@
 #include <filesystem>
 #include "wadfile.hpp"
 
-void process_dir(const std::string &base_path, WadFile &wad, const WadFile::Dir &dir) {
+void process_dir(const std::string &base_path, WadFile &wad, std::size_t dir_index) {
+    auto dir = wad.get_dir(dir_index);
     auto dir_name = dir.name;
+
     if (dir_name.size()) {
         std::filesystem::create_directories(std::filesystem::path(base_path + dir_name));
         dir_name += "/";
@@ -28,20 +30,20 @@ void process_dir(const std::string &base_path, WadFile &wad, const WadFile::Dir 
     // Extract the lumps
     for (auto i : dir.lumps) {
         auto name = wad.lump_name(i);
-        auto lump = wad.read_lump(i);
+        auto lump = wad.read_lump(dir_index, i);
 
         // Write the entry
         std::fstream file(base_path + dir_name + name, std::ios::out | std::ios::binary);
         if (!file.good())
             throw std::runtime_error("Unable to create file " + name);
 
-        lump.write(file);
+        lump->write(file);
         file.close();
     }
 
     // Do the other directories
     for (auto i : dir.dirs)
-        process_dir(base_path + dir_name, wad, wad.get_dir(i));
+        process_dir(base_path + dir_name, wad, i);
 }
 
 int main(int argc, char **argv) {
@@ -61,7 +63,7 @@ int main(int argc, char **argv) {
             auto base_path = std::filesystem::path(path).stem().string() + "/";
             std::filesystem::create_directory(std::filesystem::path(base_path));
 
-            process_dir(base_path, wad, wad.root_dir());
+            process_dir(base_path, wad, 0);
         }
         catch (const std::exception &ex) {
             std::cerr << "Error: " << ex.what() << std::endl;

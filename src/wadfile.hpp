@@ -21,6 +21,7 @@
 #include <fstream>
 
 #include "lump.hpp"
+#include "palette.hpp"
 
 class WadFile
 {
@@ -48,7 +49,7 @@ public:
 
     bool valid();
 
-    Lump read_lump(std::size_t index);
+    std::unique_ptr<Lump> read_lump(std::size_t dir, std::size_t index);
     bool write_lump(std::size_t dir, const std::string &name, Lump lump);
 
 private:
@@ -77,4 +78,6 @@ private:
     std::vector<Dir> dirs;
     std::vector<LumpEntry> lumps;
     std::fstream file;
+
+    std::unique_ptr<Palette> pal;
 };
