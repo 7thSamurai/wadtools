@@ -16,9 +16,21 @@
 #pragma once
 
 #include <string>
+#include <memory>
+#include <tuple>
 #include <endian.h>
 
+class Color;
+
 namespace Common {
+
+inline std::uint16_t little16(std::uint16_t n) {
+#if BYTE_ORDER == BIG_ENDIAN
+    return (n & 0xFF00) >> 8 | (n & 0x00FF) << 8;
+#else
+    return n;
+#endif
+}
 
 inline std::uint32_t little32(std::uint32_t n) {
 #if BYTE_ORDER == BIG_ENDIAN
@@ -37,5 +49,8 @@ inline bool ends_with(const std::string &str, const std::string &ending) {
 
     return std::equal(ending.rbegin(), ending.rend(), str.rbegin());
 }
+
+bool save_image(const std::string &path, const Color *image, unsigned int width, unsigned int height);
+std::tuple<std::unique_ptr<Color[]>, int, int> load_image(const std::string &path);
 
 };
